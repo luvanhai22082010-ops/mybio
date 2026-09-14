@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#3b82f6">
-    <meta name="description" content="Tạo trang bio cá nhân miễn phí với tất cả liên kết của bạn trong một đường dẫn duy nhất.">
+    <meta name="description" content="Tạo trang bio cá nhân miễn phí.">
     <title>MyBio - Tạo trang cá nhân của bạn</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,9 +19,7 @@
             background-color: #f3f4f6;
             color: #1f2937;
             overflow-x: hidden;
-            padding-bottom: env(safe-area-inset-bottom);
         }
-        /* Ngăn iOS tự zoom khi focus input */
         input, textarea, select { font-size: 16px; }
         @media (min-width: 768px) { input, textarea, select { font-size: 14px; } }
 
@@ -39,6 +37,8 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(-20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes toastOut { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(-20px) scale(0.95); } }
         .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
         .animate-fade-in-up { animation: fadeInUp 0.6s ease-out forwards; }
         .animate-float { animation: float 4s ease-in-out infinite; }
@@ -69,20 +69,28 @@
             border-radius: 50%; animation: spin 0.7s linear infinite;
         }
 
-        /* Sticky preview chỉ trên desktop */
         @media (min-width: 1024px) {
             .sticky-preview { position: sticky; top: 96px; }
         }
 
-        /* Safe area cho iPhone */
-        .safe-top { padding-top: env(safe-area-inset-top); }
-        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        /* ===== TOAST FIX ===== */
+        .toast-item {
+            animation: toastIn 0.3s ease-out forwards;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            line-height: 1.4;
+            max-height: 40vh;
+            overflow-y: auto;
+        }
+        .toast-item.closing {
+            animation: toastOut 0.25s ease-in forwards;
+        }
+        .toast-item::-webkit-scrollbar { width: 4px; }
+        .toast-item::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.4); border-radius: 2px; }
 
-        /* Ẩn scrollbar cho phone preview */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-        /* Hiệu ứng hover chỉ trên thiết bị có chuột */
         @media (hover: hover) {
             .hover-lift:hover { transform: translateY(-2px); }
         }
@@ -91,7 +99,7 @@
 <body class="min-h-screen flex flex-col transition-colors duration-300">
 
     <!-- Navigation -->
-    <nav class="fixed top-0 w-full glass z-50 safe-top" id="navbar">
+    <nav class="fixed top-0 w-full glass z-50" id="navbar">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between items-center h-14 md:h-16">
                 <div class="flex-shrink-0 flex items-center cursor-pointer select-none" onclick="window.location.hash = ''">
@@ -103,8 +111,10 @@
         </div>
     </nav>
 
-    <!-- Toast Container -->
-    <div id="toast-container" class="fixed top-16 md:top-auto md:bottom-4 right-4 left-4 md:left-auto z-[60] flex flex-col space-y-2 items-center md:items-end"></div>
+    <!-- Toast Container: FIX vị trí + kích thước -->
+    <div id="toast-container"
+         class="fixed top-20 left-4 right-4 md:top-auto md:bottom-6 md:right-6 md:left-auto z-[60] flex flex-col gap-2 items-stretch md:items-end pointer-events-none">
+    </div>
 
     <!-- Global Loader -->
     <div id="global-loader" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-[70] flex flex-col justify-center items-center transition-opacity duration-300">
@@ -128,8 +138,12 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        // ⚡ Dùng initializeFirestore để bật Long Polling
+        import {
+            initializeFirestore,
+            doc, getDoc, setDoc, updateDoc, onSnapshot, collection, getDocs, query, where
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ===== FIREBASE CONFIG =====
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'mybio-default-app';
@@ -141,10 +155,16 @@
             messagingSenderId: "135599269837",
             appId: "1:135599269837:web:fddff5d3451debfe1fc684"
         };
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+
+        // ⚡⚡⚡ FIX CHÍNH: Bật Long Polling để tránh lỗi "client is offline"
+        const db = initializeFirestore(app, {
+            experimentalForceLongPolling: true,
+            experimentalAutoDetectLongPolling: true,
+            useFetchStreams: false
+        });
+
         const auth = getAuth(app);
         const googleProvider = new GoogleAuthProvider();
 
@@ -154,6 +174,50 @@
         let tempThumbnailBase64 = null;
 
         const biosCollectionPath = `artifacts/${appId}/public/data/bios`;
+
+        // ===== DỊCH LỖI FIREBASE SANG TIẾNG VIỆT =====
+        function friendlyError(err) {
+            if (!err) return "Đã xảy ra lỗi không xác định.";
+            const code = err.code || '';
+            const msg = (err.message || '').toLowerCase();
+
+            // Ưu tiên check code
+            if (code === 'unavailable' || msg.includes('client is offline') || msg.includes('offline')) {
+                return "Không kết nối được máy chủ. Vui lòng kiểm tra mạng và tải lại trang.";
+            }
+            if (code === 'permission-denied' || msg.includes('permission')) {
+                return "Bạn không có quyền truy cập. Vui lòng kiểm tra lại đăng nhập.";
+            }
+            if (code === 'unauthenticated' || msg.includes('unauthenticated')) {
+                return "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.";
+            }
+            if (code === 'not-found' || msg.includes('not-found')) {
+                return "Không tìm thấy dữ liệu.";
+            }
+            if (code === 'already-exists' || msg.includes('already exists')) {
+                return "Dữ liệu đã tồn tại.";
+            }
+            if (code === 'resource-exhausted' || msg.includes('quota')) {
+                return "Đã vượt giới hạn. Vui lòng thử lại sau.";
+            }
+            if (code === 'auth/popup-blocked') {
+                return "Cửa sổ đăng nhập bị chặn. Vui lòng cho phép Popup.";
+            }
+            if (code === 'auth/popup-closed-by-user') {
+                return "Bạn đã đóng cửa sổ đăng nhập.";
+            }
+            if (code === 'auth/unauthorized-domain') {
+                return "Tên miền chưa được cấp phép. Vui lòng thêm vào Firebase Authorized Domains.";
+            }
+            if (code === 'auth/network-request-failed') {
+                return "Lỗi mạng khi đăng nhập. Vui lòng thử lại.";
+            }
+            if (code === 'auth/cancelled-popup-request') {
+                return "Đã có cửa sổ đăng nhập khác đang mở.";
+            }
+            // Fallback: cắt ngắn message gốc
+            return "Có lỗi xảy ra. Vui lòng thử lại.";
+        }
 
         // ===== UTILITIES =====
         function escapeHtml(str) {
@@ -168,21 +232,39 @@
             } catch (e) {}
             return '#';
         }
+
+        // ===== TOAST FIX =====
         window.showToast = function(message, type = 'info') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
+
             let bgClass = 'bg-gray-800', icon = 'fa-circle-info';
             if (type === 'success') { bgClass = 'bg-green-600'; icon = 'fa-check-circle'; }
-            if (type === 'error') { bgClass = 'bg-red-600'; icon = 'fa-exclamation-circle'; }
-            toast.className = `${bgClass} text-white px-4 py-3 rounded-xl shadow-lg flex items-center space-x-3 transform transition-all duration-300 translate-y-[-20px] md:translate-y-10 opacity-0 w-full md:w-auto md:max-w-sm text-sm`;
-            toast.innerHTML = `<i class="fa-solid ${icon} flex-shrink-0"></i><span class="flex-1">${escapeHtml(message)}</span>`;
+            if (type === 'error')   { bgClass = 'bg-red-600';   icon = 'fa-exclamation-circle'; }
+            if (type === 'warning') { bgClass = 'bg-amber-500'; icon = 'fa-triangle-exclamation'; }
+
+            toast.className = `toast-item pointer-events-auto ${bgClass} text-white px-4 py-3 rounded-xl shadow-lg flex items-start gap-3 w-full md:w-auto md:min-w-[280px] md:max-w-[380px] text-sm`;
+            toast.innerHTML = `
+                <i class="fa-solid ${icon} flex-shrink-0 mt-0.5"></i>
+                <span class="flex-1 break-words">${escapeHtml(message)}</span>
+                <button class="text-white/70 hover:text-white flex-shrink-0 ml-1 -mr-1" aria-label="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            `;
+
+            const closeBtn = toast.querySelector('button');
+            const removeToast = () => {
+                toast.classList.add('closing');
+                setTimeout(() => toast.remove(), 250);
+            };
+            closeBtn.addEventListener('click', removeToast);
+
             container.appendChild(toast);
-            setTimeout(() => toast.classList.remove('translate-y-[-20px]','translate-y-10','opacity-0'), 10);
-            setTimeout(() => {
-                toast.classList.add('translate-y-[-20px]','md:translate-y-10','opacity-0');
-                setTimeout(() => toast.remove(), 300);
-            }, 3200);
+
+            const timeout = setTimeout(removeToast, type === 'error' ? 6000 : 3500);
+            toast.addEventListener('mouseenter', () => clearTimeout(timeout));
         };
+
         function hideLoader() {
             const l = document.getElementById('global-loader');
             l.style.opacity = '0';
@@ -226,10 +308,14 @@
         // ===== AUTH =====
         async function initAuth() {
             try {
-                if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
-                else await signInAnonymously(auth);
-            } catch (e) { console.error("Auth error:", e); hideLoader(); }
+                await signInAnonymously(auth);
+            } catch (e) {
+                console.error("Auth error:", e);
+                // Không hiện toast ở đây để tránh spam khi load trang
+                hideLoader();
+            }
         }
+
         window.handleGoogleLogin = async () => {
             showLoader();
             try {
@@ -237,20 +323,26 @@
                 showToast("Đăng nhập thành công!", "success");
                 window.location.hash = 'dashboard';
             } catch (e) {
-                console.error(e);
-                showToast("Lỗi đăng nhập. Kiểm tra Popup Blocker.", "error");
+                console.error("Google login error:", e);
+                showToast(friendlyError(e), "error");
             }
             hideLoader();
         };
+
         window.handleLogout = async () => {
             if (!confirm("Bạn có chắc muốn đăng xuất?")) return;
             showLoader();
-            await signOut(auth);
-            await initAuth();
-            window.location.hash = '';
-            showToast("Đã đăng xuất", "info");
+            try {
+                await signOut(auth);
+                await initAuth();
+                window.location.hash = '';
+                showToast("Đã đăng xuất", "info");
+            } catch (e) {
+                showToast(friendlyError(e), "error");
+            }
             hideLoader();
         };
+
         onAuthStateChanged(auth, async (user) => {
             currentUser = user;
             updateNavbar();
@@ -269,7 +361,7 @@
                 userBioCache = null;
                 snap.forEach(d => { userBioCache = { id: d.id, ...d.data() }; });
             } catch (error) {
-                console.error("Query error, fallback:", error);
+                console.warn("Query failed, fallback to full scan:", error);
                 try {
                     const all = await getDocs(collection(db, biosCollectionPath));
                     userBioCache = null;
@@ -277,7 +369,10 @@
                         const data = d.data();
                         if (data.ownerUid === currentUser.uid) userBioCache = { id: d.id, ...data };
                     });
-                } catch (e2) { console.error(e2); }
+                } catch (e2) {
+                    console.error("Fallback also failed:", e2);
+                    showToast(friendlyError(e2), "error");
+                }
             }
         }
 
@@ -303,6 +398,7 @@
                     </button>`;
             }
         }
+
         function handleRoute() {
             const hash = window.location.hash.substring(1);
             const main = document.getElementById('main-content');
@@ -327,33 +423,27 @@
             const isRealUser = currentUser && !currentUser.isAnonymous;
             container.innerHTML = `
                 <div class="flex-grow relative overflow-hidden bg-white">
-                    <!-- Blobs nền -->
                     <div class="absolute top-0 left-0 w-72 md:w-96 h-72 md:h-96 bg-blue-200 rounded-full mix-blend-multiply filter blur-3xl opacity-50"></div>
                     <div class="absolute top-20 right-0 w-72 md:w-96 h-72 md:h-96 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-50"></div>
                     <div class="absolute -bottom-8 left-1/4 w-72 md:w-96 h-72 md:h-96 bg-pink-200 rounded-full mix-blend-multiply filter blur-3xl opacity-50"></div>
-
                     <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-                            <!-- Cột text -->
                             <div class="text-center lg:text-left animate-fade-in-up">
                                 <div class="inline-flex items-center bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full text-xs md:text-sm font-semibold mb-4 md:mb-6">
-                                    <i class="fa-solid fa-sparkles mr-2"></i> Miễn phí 100% • Không cần thẻ
+                                    <i class="fa-solid fa-bolt mr-2"></i> Miễn phí 100% • Không cần thẻ
                                 </div>
                                 <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-gray-900 tracking-tight mb-4 md:mb-6 leading-tight">
                                     Tạo Bio riêng của bạn <br class="hidden md:block">
                                     <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">Thật Dễ Dàng.</span>
                                 </h1>
                                 <p class="text-base md:text-xl text-gray-600 mb-8 md:mb-10 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-                                    Gom tất cả liên kết, tệp tin và thông tin của bạn vào một trang duy nhất. Chia sẻ với bất kỳ ai bằng một đường link:
+                                    Gom tất cả liên kết, tệp tin và thông tin của bạn vào một trang duy nhất.
                                 </p>
                                 <div class="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start mb-8">
                                     <button onclick="${isRealUser ? "window.location.hash='dashboard'" : "handleGoogleLogin()"}"
                                         class="bg-gray-900 hover:bg-gray-800 text-white font-bold py-3.5 md:py-4 px-8 md:px-10 rounded-full text-base md:text-lg shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all active:scale-95">
                                         <i class="fa-solid fa-rocket mr-2"></i> Bắt đầu miễn phí
                                     </button>
-                                    <a href="#/demo" class="bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-800 font-semibold py-3.5 md:py-4 px-8 rounded-full text-base md:text-lg transition-all text-center">
-                                        Xem ví dụ
-                                    </a>
                                 </div>
                                 <div class="flex items-center justify-center lg:justify-start space-x-6 text-xs md:text-sm text-gray-500">
                                     <div class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> Không giới hạn</div>
@@ -361,8 +451,6 @@
                                     <div class="flex items-center"><i class="fa-solid fa-check-circle text-green-500 mr-2"></i> Đẹp mắt</div>
                                 </div>
                             </div>
-
-                            <!-- Cột preview phone -->
                             <div class="hidden lg:flex justify-center animate-fade-in-up" style="animation-delay: 0.2s;">
                                 <div class="relative">
                                     <div class="absolute -inset-8 bg-gradient-to-tr from-blue-400 to-purple-500 rounded-full blur-3xl opacity-30"></div>
@@ -413,7 +501,7 @@
                             <div class="text-center mb-6">
                                 <div class="w-14 md:w-16 h-14 md:h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-xl md:text-2xl"><i class="fa-solid fa-rocket"></i></div>
                                 <h2 class="text-xl md:text-2xl font-bold text-gray-800">Tạo địa chỉ Bio của bạn</h2>
-                                <p class="text-gray-500 mt-2 text-xs md:text-sm">Địa chỉ này là duy nhất và sẽ dùng để chia sẻ trang của bạn.</p>
+                                <p class="text-gray-500 mt-2 text-xs md:text-sm">Địa chỉ này là duy nhất và dùng để chia sẻ trang của bạn.</p>
                             </div>
                             <form id="claim-form" onsubmit="handleClaimUsername(event)">
                                 <div class="mb-4">
@@ -433,16 +521,24 @@
                 renderEditor(container, userBioCache);
             }
         }
+
         window.handleClaimUsername = async (e) => {
             e.preventDefault();
             const btn = document.getElementById('claim-btn');
             const username = document.getElementById('username-input').value.toLowerCase().trim();
-            if (!/^[a-z0-9_-]{3,30}$/.test(username)) { showToast("Username không hợp lệ (3-30 ký tự a-z, 0-9, -, _)", "error"); return; }
+            if (!/^[a-z0-9_-]{3,30}$/.test(username)) {
+                showToast("Username không hợp lệ (3-30 ký tự a-z, 0-9, -, _)", "error");
+                return;
+            }
             setBtnLoading(btn, true);
             try {
                 const docRef = doc(db, biosCollectionPath, username);
                 const existing = await getDoc(docRef);
-                if (existing.exists()) { showToast("Tên bio này đã có người sử dụng!", "error"); setBtnLoading(btn, false); return; }
+                if (existing.exists()) {
+                    showToast("Tên bio này đã có người sử dụng!", "error");
+                    setBtnLoading(btn, false);
+                    return;
+                }
                 const newBio = {
                     ownerUid: currentUser.uid,
                     displayName: currentUser.displayName || "Người dùng mới",
@@ -455,8 +551,9 @@
                 userBioCache = { id: username, ...newBio };
                 renderDashboard(document.getElementById('main-content'));
             } catch (err) {
-                console.error(err);
-                showToast("Có lỗi xảy ra: " + (err.message || ""), "error");
+                console.error("Create bio error:", err);
+                // ⚡ Hiện lỗi NGẮN GỌN, KHÔNG cắt
+                showToast(friendlyError(err), "error");
                 setBtnLoading(btn, false);
             }
         };
@@ -467,9 +564,7 @@
             container.innerHTML = `
                 <div class="max-w-7xl mx-auto w-full p-3 md:p-8 animate-fade-in">
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start">
-                        <!-- LEFT: Editor -->
                         <div class="space-y-4 md:space-y-6">
-                            <!-- Profile Card -->
                             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-6">
                                 <div class="flex justify-between items-center mb-4">
                                     <h3 class="text-base md:text-lg font-bold text-gray-800">Thông tin cá nhân</h3>
@@ -500,12 +595,11 @@
                                 </form>
                             </div>
 
-                            <!-- Add Item -->
                             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 md:p-6">
                                 <h3 class="text-base md:text-lg font-bold text-gray-800 mb-4">Thêm Nội Dung Mới</h3>
                                 <div class="flex space-x-2 mb-4">
-                                    <button onclick="switchFormType('link')" id="btn-type-link" class="flex-1 py-2 rounded-lg text-xs md:text-sm font-medium bg-blue-100 text-blue-700 transition-colors">Link</button>
-                                    <button onclick="switchFormType('file')" id="btn-type-file" class="flex-1 py-2 rounded-lg text-xs md:text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">Tệp đính kèm</button>
+                                    <button type="button" onclick="switchFormType('link')" id="btn-type-link" class="flex-1 py-2 rounded-lg text-xs md:text-sm font-medium bg-blue-100 text-blue-700 transition-colors">Link</button>
+                                    <button type="button" onclick="switchFormType('file')" id="btn-type-file" class="flex-1 py-2 rounded-lg text-xs md:text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">Tệp đính kèm</button>
                                 </div>
                                 <form id="add-item-form" onsubmit="handleAddItem(event)" class="space-y-4">
                                     <input type="hidden" id="item-type" value="link">
@@ -529,7 +623,6 @@
                             </div>
                         </div>
 
-                        <!-- RIGHT: Preview (Desktop) -->
                         <div class="hidden lg:block sticky-preview">
                             <p class="text-xs text-center text-gray-400 mb-3 uppercase tracking-wider font-semibold">Xem trước</p>
                             <div class="bg-gray-900 rounded-[2.5rem] p-2 shadow-2xl mx-auto w-full max-w-[340px] aspect-[9/19] border-8 border-gray-900 relative">
@@ -539,8 +632,6 @@
                         </div>
                     </div>
                 </div>
-
-                <!-- Floating preview button (mobile) -->
                 <button onclick="openMobilePreview()" class="lg:hidden fixed bottom-6 right-6 z-40 bg-gray-900 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center active:scale-95 transition-transform">
                     <i class="fa-solid fa-mobile-screen-button text-xl"></i>
                 </button>
@@ -568,7 +659,6 @@
             modal.classList.add('hidden');
             modal.classList.remove('flex');
         };
-
         window.handleAvatarSelect = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -580,7 +670,7 @@
                 userBioCache.avatarUrl = base64;
                 updatePreviewArea();
                 showToast("Đã cập nhật avatar!", "success");
-            } catch (err) { showToast(err.message, "error"); }
+            } catch (err) { showToast(friendlyError(err), "error"); }
             hideLoader();
         };
         window.handleThumbnailSelect = async (e) => {
@@ -592,7 +682,7 @@
                 const icon = document.getElementById('item-thumbnail-icon');
                 img.src = base64; img.classList.remove('hidden'); icon.classList.add('hidden');
                 tempThumbnailBase64 = base64;
-            } catch (err) { showToast(err.message, "error"); }
+            } catch (err) { showToast(friendlyError(err), "error"); }
         };
         window.handleUpdateProfile = async (e) => {
             e.preventDefault();
@@ -607,7 +697,7 @@
                 await updateDoc(doc(db, biosCollectionPath, userBioCache.id), updates);
                 userBioCache = { ...userBioCache, ...updates };
                 showToast("Cập nhật hồ sơ thành công", "success");
-            } catch (err) { console.error(err); showToast("Lỗi khi cập nhật", "error"); }
+            } catch (err) { showToast(friendlyError(err), "error"); }
             setBtnLoading(btn, false);
         };
         window.switchFormType = (type) => {
@@ -636,7 +726,10 @@
                 try {
                     const u = new URL(urlInput);
                     if (!['http:','https:'].includes(u.protocol)) throw new Error();
-                } catch { showToast("URL không hợp lệ (phải bắt đầu http:// hoặc https://)", "error"); setBtnLoading(btn, false); return; }
+                } catch {
+                    showToast("URL không hợp lệ (phải bắt đầu http:// hoặc https://)", "error");
+                    setBtnLoading(btn, false); return;
+                }
                 const newItem = {
                     id: Date.now().toString(),
                     type: document.getElementById('item-type').value,
@@ -654,7 +747,7 @@
                 document.getElementById('item-thumbnail-icon').classList.remove('hidden');
                 updatePreviewArea();
                 showToast("Đã thêm!", "success");
-            } catch (err) { console.error(err); showToast("Lỗi khi thêm liên kết", "error"); }
+            } catch (err) { showToast(friendlyError(err), "error"); }
             setBtnLoading(btn, false);
         };
         window.deleteItem = async (itemId) => {
@@ -667,7 +760,7 @@
                 userBioCache.links = updatedLinks;
                 updatePreviewArea();
                 showToast("Đã xóa", "success");
-            } catch (err) { showToast("Lỗi khi xóa", "error"); }
+            } catch (err) { showToast(friendlyError(err), "error"); }
             hideLoader();
         };
         window.copyToClipboard = (text) => {
@@ -738,7 +831,7 @@
                         <div id="bio-content-area" class="w-full">
                             <div class="flex justify-center items-center py-20"><div class="loader" style="border-top-color:#fff;"></div></div>
                         </div>
-                        <div class="mt-auto pt-10 text-center safe-bottom">
+                        <div class="mt-auto pt-10 text-center">
                             <a href="#/" class="inline-block glass px-4 py-2 rounded-full shadow-sm hover:shadow-md transition-shadow">
                                 <span class="text-xs font-semibold text-gray-700">Tạo bởi </span>
                                 <span class="text-sm font-bold text-gray-900"><i class="fa-solid fa-link text-blue-600"></i> MyBio</span>
@@ -778,8 +871,15 @@
                 document.title = `${data.displayName} | MyBio`;
             }, (error) => {
                 console.error("Error listening:", error);
-                if (error.code === 'permission-denied')
-                    contentArea.innerHTML = `<div class="text-center mt-10 text-red-600 bg-white/80 p-4 rounded-lg">Lỗi truy cập dữ liệu. Vui lòng tải lại trang.</div>`;
+                contentArea.innerHTML = `
+                    <div class="glass rounded-2xl p-6 text-center mt-10 animate-fade-in">
+                        <i class="fa-solid fa-triangle-exclamation text-4xl text-amber-500 mb-3"></i>
+                        <h2 class="text-lg font-bold text-gray-800 mb-2">Không tải được trang</h2>
+                        <p class="text-gray-700 text-sm mb-4">${escapeHtml(friendlyError(error))}</p>
+                        <button onclick="location.reload()" class="bg-gray-900 text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-gray-800 transition-colors">
+                            <i class="fa-solid fa-rotate-right mr-1"></i> Thử lại
+                        </button>
+                    </div>`;
             });
         }
 
